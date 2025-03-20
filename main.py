@@ -3,38 +3,58 @@ import os
 import shutil
 import logging
 import hashlib
+import time
 
 class SyncFolders:
     def __init__(self, log_file):
-        logging.basicConfig(filename=log_file, format='%(asctime)s: %(levelname)s: %(message)s', level=logging.INFO)
+        logging.basicConfig(filename=log_file, format="%(asctime)s: %(levelname)s: %(message)s", level=logging.INFO)
 
     def create_replicas(self, source_path, replica_path):
-        
-        sourceFiles = os.listdir(source_path)
-        replicaFiles = os.listdir(replica_path)
-        
-        logs = open(args.log, "a")
+        # Ensure replica folder exists
+        if not os.path.exists(replica_path):
+            os.makedirs(replica_path)
 
-        # iterate through files for removal
-        for filename in os.listdir(replica_path):
-            file_path = os.path.join(replica_path, filename)
-            if os.path.isfile(file_path):
-                # DELETE FILE FROM REPLICAS IF NOT IN SOURCE
-                if filename not in sourceFiles or filename in sourceFiles and get_file_md5(file_path) != get_file_md5(os.path.join(source_path, filename)):
-                    logging.warning(f"File {filename} does not exist in Source folder! Deleting from replicas..\n")
-                    os.remove(file_path)
+        # Sync files and folders
+        for root, dirs, files in os.walk(source_path):
+            rel_path = os.path.relpath(root, source_path)
+            replica_root = os.path.join(replica_path, rel_path)
 
-        # iterate through files for creation
-        for filename in os.listdir(source_path):
-            file_path = os.path.join(source_path, filename)
-            if os.path.isfile(file_path):
-                # FILE IS IN REPLICAS
-                if filename in replicaFiles and get_file_md5(file_path) == get_file_md5(os.path.join(replica_path, filename)):
-                    logging.info(f"Source file {filename} found in replicas folder!\n")
-                # FILE IS NOT IN REPLICAS
-                else:
-                    shutil.copy2(file_path, os.path.join(replica_path, filename))
-                    logging.info(f"Source file {filename} created in replicas folder!\n")
+            # Create missing directories in replica
+            for dir_name in dirs:
+                replica_dir = os.path.join(replica_root, dir_name)
+                if not os.path.exists(replica_dir):
+                    os.makedirs(replica_dir)
+                    logging.info(f"Created directory: {replica_dir}")
+
+            # Copy or update files
+            for filename in files:
+                source_file = os.path.join(root, filename)
+                replica_file = os.path.join(replica_root, filename)
+
+                if not os.path.exists(replica_file) or get_file_md5(source_file) != get_file_md5(replica_file):
+                    shutil.copy2(source_file, replica_file)
+                    logging.info(f"Copied/Updated file: {replica_file}")
+
+        # Remove extra files and folders from replica
+        for root, dirs, files in os.walk(replica_path, topdown=False):  # Traverse bottom-up to delete empty dirs
+            rel_path = os.path.relpath(root, replica_path)
+            source_root = os.path.join(source_path, rel_path)
+
+            # Remove extra files
+            for filename in files:
+                replica_file = os.path.join(root, filename)
+                source_file = os.path.join(source_root, filename)
+                if not os.path.exists(source_file):
+                    os.remove(replica_file)
+                    logging.warning(f"Deleted extra file: {replica_file}")
+
+            # Remove extra directories
+            for dir_name in dirs:
+                replica_dir = os.path.join(root, dir_name)
+                source_dir = os.path.join(source_root, dir_name)
+                if not os.path.exists(source_dir):
+                    shutil.rmtree(replica_dir)
+                    logging.warning(f"Deleted extra directory: {replica_dir}")
 
 def get_file_md5(filepath):
     md5 = hashlib.md5()
@@ -46,15 +66,18 @@ def get_file_md5(filepath):
     return md5.hexdigest()
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Sync two folders")
-    # Arguments list
+    parser = argparse.ArgumentParser(description="Sync two folders periodically with subdirectory support")
     parser.add_argument("source", help="Source folder path")
     parser.add_argument("replica", help="Replica folder path")
-    # parser.add_argument("--interval", type=int, default=10, help="Sync interval in seconds")
+    parser.add_argument("--interval", type=int, default=10, help="Sync interval in seconds")
     parser.add_argument("--log", help="Log file path")
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
     sync = SyncFolders(args.log)
-    sync.create_replicas(args.source, args.replica)
+
+    while True:
+        sync.create_replicas(args.source, args.replica)
+        logging.info(f"Synchronization completed. Next sync in {args.interval} seconds...")
+        time.sleep(args.interval)
