@@ -104,7 +104,7 @@ if __name__ == "__main__":
 
     while True:
         sync.create_replicas(args.src, args.dest)
-        sync.logger.info(  # Use self.logger instead of logging
+        sync.logger.info(
             f"Synchronization completed. Next sync in {args.interval} seconds..."
         )
         time.sleep(args.interval)
